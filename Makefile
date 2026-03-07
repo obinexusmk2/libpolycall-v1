@@ -1,0 +1,302 @@
+# LibPolyCall Library Makefile
+# Cross-platform compilation: Windows DLL, Unix/Linux Shared Library, Static Library
+#
+# Usage:
+#   make                    # Build default (debug shared library)
+#   make release            # Build optimized version
+#   make static             # Build static library
+#   make dll                # Build Windows DLL (requires MSVC/MinGW)
+#   make clean              # Clean build artifacts
+#   make install            # Install library (Unix/Linux only)
+
+# ================================================================
+# Project Configuration
+# ================================================================
+
+LIBNAME := polycall
+VERSION := 2.0.0
+PROJECT_NAME := libpolycall
+
+# ================================================================
+# Color Codes for Output (ANSI & Windows)
+# ================================================================
+
+# Windows detection first (before uname)
+ifdef COMSPEC
+    PLATFORM := Windows
+    SHELL := cmd.exe
+    .SHELLFLAGS := /c
+    # Windows colors using ANSI escape sequences
+    RED := [91m
+    AMBER := [93m
+    ORANGE := [33m
+    GREEN := [92m
+    BLUE := [94m
+    RESET := [0m
+    RM := del /f /q
+    MKDIR := mkdir
+    RMDIR := rmdir /s /q
+    ECHO_CMD := echo
+    TOUCH_CMD := type nul >>
+else
+    # Unix/Linux/macOS colors
+    RED := \033[91m
+    AMBER := \033[93m
+    ORANGE := \033[33m
+    GREEN := \033[92m
+    BLUE := \033[94m
+    RESET := \033[0m
+    RM := rm -f
+    MKDIR := mkdir -p
+    RMDIR := rm -rf
+    ECHO_CMD := echo -e
+endif
+
+# ================================================================
+# Platform Detection
+# ================================================================
+
+ifdef COMSPEC
+    # Windows Platform
+    PLATFORM := Windows
+    SHARED_EXT := .dll
+    STATIC_EXT := .lib
+    SHARED_FLAG := -shared
+    POSITION_INDEPENDENT :=
+    COMPILER := gcc
+else
+    UNAME_S := $(shell uname -s)
+
+    ifeq ($(UNAME_S),Linux)
+        PLATFORM := Linux
+        SHARED_EXT := .so
+        SHARED_FLAG := -shared
+        POSITION_INDEPENDENT := -fPIC
+        COMPILER := gcc
+    endif
+
+    ifeq ($(UNAME_S),Darwin)
+        PLATFORM := macOS
+        SHARED_EXT := .dylib
+        SHARED_FLAG := -dynamiclib
+        POSITION_INDEPENDENT := -fPIC
+        COMPILER := clang
+    endif
+endif
+
+ifndef PLATFORM
+    PLATFORM := Unknown
+    COMPILER := gcc
+endif
+
+# ================================================================
+# Directory Structure
+# ================================================================
+
+SRCDIR   := src
+INCDIR   := include
+OBJDIR   := build/obj
+LIBDIR   := build/lib
+BINDIR   := build/bin
+
+# ================================================================
+# Compiler Flags
+# ================================================================
+
+# Basic flags (all platforms)
+CFLAGS := -Wall -Wextra -Werror -ffunction-sections -fdata-sections
+CFLAGS += -I$(INCDIR)
+CFLAGS += -DPOLYCALL_VERSION="\"$(VERSION)\""
+
+# C Standard
+CFLAGS += -std=c99 -pedantic
+
+# Visibility/Export handling
+ifeq ($(PLATFORM),Windows)
+    # Windows DLL export
+    EXPORT_FLAG := -DPOLYCALL_DLL_EXPORT
+    CFLAGS += $(EXPORT_FLAG)
+else
+    # Unix/Linux/macOS - hide symbols by default
+    CFLAGS += -fvisibility=hidden
+endif
+
+# Position Independent Code (for shared libraries)
+ifneq ($(POSITION_INDEPENDENT),)
+    CFLAGS += $(POSITION_INDEPENDENT)
+endif
+
+# Debug vs Release
+DEBUG ?= 1
+ifeq ($(DEBUG),1)
+    CFLAGS += -g -O0 -DDEBUG
+    BUILD_TYPE := debug
+else
+    CFLAGS += -O2 -DNDEBUG
+    BUILD_TYPE := release
+endif
+
+# ================================================================
+# Linker Flags
+# ================================================================
+
+LDFLAGS :=
+
+ifeq ($(PLATFORM),Linux)
+    LDFLAGS += -Wl,--gc-sections
+endif
+
+# ================================================================
+# Source Files
+# ================================================================
+
+C_SOURCES := $(wildcard $(SRCDIR)/*.c)
+HEADERS := $(wildcard $(INCDIR)/*.h)
+OBJECTS := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(C_SOURCES))
+
+# Library names
+STATIC_LIB := $(LIBDIR)/lib$(LIBNAME).a
+SHARED_LIB := $(LIBDIR)/lib$(LIBNAME)$(SHARED_EXT)
+DLL_EXPORT := $(LIBDIR)/$(LIBNAME).lib
+
+ifeq ($(PLATFORM),Windows)
+    SHARED_LIB := $(LIBDIR)/$(LIBNAME).dll
+endif
+
+# ================================================================
+# Build Targets
+# ================================================================
+
+.PHONY: all debug release static shared dll clean distclean install info help
+
+# Default target
+all: $(SHARED_LIB)
+
+debug: DEBUG := 1
+debug: clean all
+	@$(ECHO_CMD) "$(GREEN)✓ Built debug shared library: $(SHARED_LIB)$(RESET)"
+
+release: DEBUG := 0
+release: clean all
+	@$(ECHO_CMD) "$(GREEN)✓ Built optimized release library: $(SHARED_LIB)$(RESET)"
+
+static: $(STATIC_LIB)
+	@$(ECHO_CMD) "$(GREEN)✓ Built static library: $(STATIC_LIB)$(RESET)"
+
+shared: $(SHARED_LIB)
+	@$(ECHO_CMD) "$(GREEN)✓ Built shared library: $(SHARED_LIB)$(RESET)"
+
+dll: EXPORT_FLAG := -DPOLYCALL_DLL_EXPORT
+dll: $(LIBDIR)/$(LIBNAME).dll
+	@$(ECHO_CMD) "$(GREEN)✓ Built Windows DLL: $(LIBDIR)/$(LIBNAME).dll$(RESET)"
+
+# ================================================================
+# Compilation Rules
+# ================================================================
+
+# Create directories
+$(OBJDIR):
+	@$(MKDIR) $(OBJDIR)
+
+$(LIBDIR):
+	@$(MKDIR) $(LIBDIR)
+
+$(BINDIR):
+	@$(MKDIR) $(BINDIR)
+
+# Object file compilation
+$(OBJDIR)/%.o: $(SRCDIR)/%.c $(HEADERS) | $(OBJDIR)
+	@$(ECHO_CMD) "$(BLUE)  Compiling:$(RESET) $<"
+	@$(COMPILER) $(CFLAGS) -c $< -o $@ || ($(ECHO_CMD) "$(RED)✗ Compilation failed: $<$(RESET)" && exit 1)
+
+# ================================================================
+# Library Building
+# ================================================================
+
+# Static Library
+$(STATIC_LIB): $(OBJECTS) | $(LIBDIR)
+	@$(ECHO_CMD) "$(ORANGE)Linking static library:$(RESET) $@"
+	@ar rcs $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)✗ Linking failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)✓ Static library created:$(RESET) $@"
+
+# Shared Library (Unix/Linux/macOS)
+$(SHARED_LIB): $(OBJECTS) | $(LIBDIR)
+	@$(ECHO_CMD) "$(ORANGE)Linking shared library:$(RESET) $@"
+	@$(CC) $(SHARED_FLAG) $(LDFLAGS) -o $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)✗ Linking failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)✓ Shared library created:$(RESET) $@"
+
+# ================================================================
+# Installation
+# ================================================================
+
+install: $(SHARED_LIB) $(HEADERS)
+ifeq ($(PLATFORM),Windows)
+	@$(ECHO_CMD) "$(AMBER)⚠ Installation not supported on Windows$(RESET)"
+	@$(ECHO_CMD) "$(AMBER)  Copy $(SHARED_LIB) to your system library path manually$(RESET)"
+else
+	@$(ECHO_CMD) "$(ORANGE)Installing $(PROJECT_NAME) v$(VERSION)...$(RESET)"
+	@install -d /usr/local/lib
+	@install -d /usr/local/include/$(PROJECT_NAME)
+	@install -m 755 $(SHARED_LIB) /usr/local/lib/
+	@install -m 644 $(HEADERS) /usr/local/include/$(PROJECT_NAME)/
+	@$(ECHO_CMD) "$(GREEN)✓ Installed to /usr/local/lib/ and /usr/local/include/$(PROJECT_NAME)/$(RESET)"
+
+endif
+
+# ================================================================
+# Cleaning
+# ================================================================
+
+clean:
+	@$(ECHO_CMD) "$(ORANGE)Cleaning build artifacts...$(RESET)"
+	@$(RMDIR) build 2>/dev/null || true
+	@$(ECHO_CMD) "$(GREEN)✓ Clean complete$(RESET)"
+
+distclean: clean
+	@$(ECHO_CMD) "$(ORANGE)Removing generated files...$(RESET)"
+	@$(RM) *~ *.swp 2>/dev/null || true
+	@$(ECHO_CMD) "$(GREEN)✓ Distribution clean complete$(RESET)"
+
+# ================================================================
+# Information and Help
+# ================================================================
+
+info:
+	@$(ECHO_CMD) "$(BLUE)LibPolyCall Build Configuration$(RESET)"
+	@$(ECHO_CMD) "$(BLUE)================================$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)Platform:$(RESET)      $(PLATFORM)"
+	@$(ECHO_CMD) "$(GREEN)Compiler:$(RESET)      $(COMPILER)"
+	@$(ECHO_CMD) "$(GREEN)Build Type:$(RESET)    $(BUILD_TYPE)"
+	@$(ECHO_CMD) "$(GREEN)Library Name:$(RESET)  $(LIBNAME)"
+	@$(ECHO_CMD) "$(GREEN)Version:$(RESET)       $(VERSION)"
+	@$(ECHO_CMD) ""
+	@$(ECHO_CMD) "$(GREEN)Source Files:$(RESET)  $(C_SOURCES)"
+	@$(ECHO_CMD) "$(GREEN)Header Files:$(RESET)  $(HEADERS)"
+
+help:
+	@$(ECHO_CMD) "$(BLUE)LibPolyCall Library - Build Targets$(RESET)"
+	@$(ECHO_CMD) "$(BLUE)=====================================$(RESET)"
+	@$(ECHO_CMD) ""
+	@$(ECHO_CMD) "  $(GREEN)make [all]$(RESET)        Build default (debug shared library)"
+	@$(ECHO_CMD) "  $(GREEN)make debug$(RESET)        Build debug version with symbols"
+	@$(ECHO_CMD) "  $(GREEN)make release$(RESET)      Build optimized release version"
+	@$(ECHO_CMD) "  $(GREEN)make static$(RESET)       Build static library (.a / .lib)"
+	@$(ECHO_CMD) "  $(GREEN)make shared$(RESET)       Build shared library (.so / .dylib / .dll)"
+	@$(ECHO_CMD) "  $(GREEN)make dll$(RESET)          Build Windows DLL explicitly"
+	@$(ECHO_CMD) ""
+	@$(ECHO_CMD) "  $(ORANGE)make install$(RESET)      Install library (Unix/Linux only)"
+	@$(ECHO_CMD) "  $(AMBER)make clean$(RESET)        Remove build artifacts"
+	@$(ECHO_CMD) "  $(RED)make distclean$(RESET)    Remove all generated files"
+	@$(ECHO_CMD) ""
+	@$(ECHO_CMD) "  $(BLUE)make info$(RESET)         Show build configuration"
+	@$(ECHO_CMD) "  $(BLUE)make help$(RESET)         This help message"
+	@$(ECHO_CMD) ""
+	@$(ECHO_CMD) "$(ORANGE)Examples:$(RESET)"
+	@$(ECHO_CMD) "  $$ make                  # Build default (shared, debug)"
+	@$(ECHO_CMD) "  $$ make release static   # Build static release library"
+	@$(ECHO_CMD) "  $$ make dll              # Build Windows DLL"
+	@$(ECHO_CMD) "  $$ make install          # Install on Unix/Linux"
+
+.DEFAULT_GOAL := help
+.PHONY: info help
+
