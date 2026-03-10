@@ -164,6 +164,27 @@ ifeq ($(PLATFORM),Windows)
 endif
 
 # ================================================================
+# DLL Cross-compilation Support
+# ================================================================
+
+# Separate object dir for DLL build to avoid mixing .so and .dll objects
+DLL_OBJDIR  := build/obj_dll
+DLL_OBJECTS := $(patsubst $(SRCDIR)/%.c,$(DLL_OBJDIR)/%.o,$(C_SOURCES))
+DLL_TARGET  := $(LIBDIR)/$(LIBNAME).dll
+
+# Compiler to use for the DLL target:
+#   - On native Windows the normal gcc already targets PE/COFF
+#   - On Linux/WSL use the MinGW-w64 cross-compiler
+ifeq ($(PLATFORM),Windows)
+    DLL_CC := $(COMPILER)
+else
+    DLL_CC := x86_64-w64-mingw32-gcc
+endif
+
+# Strip -fvisibility=hidden (not meaningful for MinGW) and add DLL export flag
+DLL_CFLAGS := $(filter-out -fvisibility=hidden,$(CFLAGS)) -DPOLYCALL_DLL_EXPORT
+
+# ================================================================
 # Build Targets
 # ================================================================
 
@@ -186,9 +207,8 @@ static: $(STATIC_LIB)
 shared: $(SHARED_LIB)
 	@$(ECHO_CMD) "$(GREEN)✓ Built shared library: $(SHARED_LIB)$(RESET)"
 
-dll: EXPORT_FLAG := -DPOLYCALL_DLL_EXPORT
-dll: $(LIBDIR)/$(LIBNAME).dll
-	@$(ECHO_CMD) "$(GREEN)✓ Built Windows DLL: $(LIBDIR)/$(LIBNAME).dll$(RESET)"
+dll: $(DLL_TARGET)
+	@$(ECHO_CMD) "$(GREEN)✓ Built Windows DLL: $(DLL_TARGET)$(RESET)"
 
 # ================================================================
 # Compilation Rules
@@ -224,6 +244,23 @@ $(SHARED_LIB): $(OBJECTS) | $(LIBDIR)
 	@$(ECHO_CMD) "$(ORANGE)Linking shared library:$(RESET) $@"
 	@$(CC) $(SHARED_FLAG) $(LDFLAGS) -o $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)✗ Linking failed$(RESET)" && exit 1)
 	@$(ECHO_CMD) "$(GREEN)✓ Shared library created:$(RESET) $@"
+
+# Windows DLL (native or cross-compiled via MinGW-w64 from Linux/WSL)
+# Order-only dep on $(LIBDIR) ensures build/ parent exists before we try
+# to create build/obj_dll (critical on Windows where mkdir has no -p).
+$(DLL_OBJDIR): | $(LIBDIR)
+	@$(MKDIR) $(DLL_OBJDIR)
+
+$(DLL_OBJDIR)/%.o: $(SRCDIR)/%.c $(HEADERS) | $(DLL_OBJDIR)
+	@$(ECHO_CMD) "$(BLUE)  Compiling (DLL):$(RESET) $<"
+	@$(DLL_CC) $(DLL_CFLAGS) -c $< -o $@ || ($(ECHO_CMD) "$(RED)✗ DLL compilation failed: $<$(RESET)" && exit 1)
+
+$(DLL_TARGET): $(DLL_OBJECTS) | $(LIBDIR)
+	@$(ECHO_CMD) "$(ORANGE)Linking Windows DLL:$(RESET) $@"
+	@$(DLL_CC) -shared -o $@ $(DLL_OBJECTS) \
+		-Wl,--out-implib,$(DLL_EXPORT) \
+		|| ($(ECHO_CMD) "$(RED)✗ DLL linking failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)✓ Windows DLL created:$(RESET) $@"
 
 # ================================================================
 # Installation

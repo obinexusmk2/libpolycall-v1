@@ -94,8 +94,9 @@ $CommonFlags = @(
     "-I$IncDir",
     "-DPOLYCALL_VERSION=`"$Version`"",
     "-DPOLYCALL_DLL_EXPORT",
-    "-std=c99", "-pedantic",
-    "-fvisibility=hidden"
+    "-std=c99", "-pedantic"
+    # Note: -fvisibility=hidden is ELF-only and has no effect on Windows PE/COFF;
+    # symbol visibility is controlled via __declspec(dllexport) in polycall_export.h
 )
 
 $DebugFlags = @("-g", "-O0", "-DDEBUG")
@@ -199,6 +200,9 @@ function BuildSharedLibrary {
     } else {
         $LinkFlagsList += "-s"
     }
+
+    # Winsock2 is required by network.c (socket, bind, closesocket, recv, send, etc.)
+    $LinkFlagsList += "-lws2_32"
 
     Write-ColorOutput "Linking with GCC..." "Blue"
     Write-ColorOutput "  Output: $OutputFile" "Blue"

@@ -1,11 +1,27 @@
-/* Enable strdup and other POSIX functions */
-#define _DEFAULT_SOURCE
-#define _POSIX_C_SOURCE 200809L
+/* Enable strdup and other POSIX functions on Linux/macOS */
+#if !defined(_WIN32) && !defined(_WIN64)
+#  define _DEFAULT_SOURCE
+#  define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "polycall_tokenizer.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+
+/* Portable string duplication using only C99 standard functions.
+   Avoids strdup / _strdup, both of which are hidden by -std=c99 -pedantic
+   on Linux (POSIX-only) and on Windows/MinGW (Microsoft-extension).
+   malloc, strlen, memcpy are guaranteed C89/C99. */
+static char* polycall_strdup(const char* s) {
+    size_t len;
+    char*  copy;
+    if (!s) return NULL;
+    len  = strlen(s) + 1;
+    copy = (char*)malloc(len);
+    if (copy) memcpy(copy, s, len);
+    return copy;
+}
 
 // Default configuration values
 #define DEFAULT_BUFFER_SIZE 4096
@@ -36,7 +52,7 @@ static void set_error_state(PolycallTokenizer* tokenizer, const char* message) {
     if (tokenizer->state.error_message) {
         free(tokenizer->state.error_message);
     }
-    tokenizer->state.error_message = strdup(message);
+    tokenizer->state.error_message = polycall_strdup(message);
     tokenizer->state.error_count++;
 }
 
