@@ -102,7 +102,10 @@ $CommonFlags = @(
 $DebugFlags = @("-g", "-O0", "-DDEBUG")
 $ReleaseFlags = @("-O3", "-DNDEBUG", "-s")  # -O3: aggressive optimization, -s: strip symbols
 
-$SourceFiles = Get-ChildItem -Path "$SrcDir\*.c" -ErrorAction SilentlyContinue
+# Exclude main.c from the library build (it is the executable entry point,
+# not a library source — mirrors Makefile LIB_SOURCES filter-out logic).
+$SourceFiles = Get-ChildItem -Path "$SrcDir\*.c" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "main.c" }
 $HeaderFiles = Get-ChildItem -Path "$IncDir\*.h" -ErrorAction SilentlyContinue
 
 if (-not $SourceFiles) {
