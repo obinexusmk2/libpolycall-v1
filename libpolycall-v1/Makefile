@@ -151,8 +151,13 @@ endif
 # ================================================================
 
 C_SOURCES := $(wildcard $(SRCDIR)/*.c)
-HEADERS := $(wildcard $(INCDIR)/*.h)
-OBJECTS := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(C_SOURCES))
+HEADERS   := $(wildcard $(INCDIR)/*.h)
+
+# main.c is the executable entry point - exclude it from all library builds
+BIN_SRC     := $(SRCDIR)/main.c
+LIB_SOURCES := $(filter-out $(BIN_SRC),$(C_SOURCES))
+
+OBJECTS := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(LIB_SOURCES))
 
 # Library names
 STATIC_LIB := $(LIBDIR)/lib$(LIBNAME).a
@@ -169,7 +174,7 @@ endif
 
 # Separate object dir for DLL build to avoid mixing .so and .dll objects
 DLL_OBJDIR  := build/obj_dll
-DLL_OBJECTS := $(patsubst $(SRCDIR)/%.c,$(DLL_OBJDIR)/%.o,$(C_SOURCES))
+DLL_OBJECTS := $(patsubst $(SRCDIR)/%.c,$(DLL_OBJDIR)/%.o,$(LIB_SOURCES))
 DLL_TARGET  := $(LIBDIR)/$(LIBNAME).dll
 
 # Compiler to use for the DLL target:
@@ -185,10 +190,23 @@ endif
 DLL_CFLAGS := $(filter-out -fvisibility=hidden,$(CFLAGS)) -DPOLYCALL_DLL_EXPORT
 
 # ================================================================
+# Binary (polycall / polycall.exe) from src/main.c
+# ================================================================
+
+ifeq ($(PLATFORM),Windows)
+    BIN_TARGET  := $(BINDIR)/$(LIBNAME).exe
+    BIN_LDFLAGS := -L$(LIBDIR) -l$(LIBNAME) -lws2_32 -lpthread
+else
+    BIN_TARGET  := $(BINDIR)/$(LIBNAME)
+    # -rpath embeds the lib path so the binary finds libpolycall.so at runtime
+    BIN_LDFLAGS := -L$(LIBDIR) -l$(LIBNAME) -lpthread -Wl,-rpath,$(LIBDIR)
+endif
+
+# ================================================================
 # Build Targets
 # ================================================================
 
-.PHONY: all debug release static shared dll clean distclean install info help
+.PHONY: all debug release static shared dll bin clean distclean install info help
 
 # Default target
 all: $(SHARED_LIB)
@@ -209,6 +227,9 @@ shared: $(SHARED_LIB)
 
 dll: $(DLL_TARGET)
 	@$(ECHO_CMD) "$(GREEN)✓ Built Windows DLL: $(DLL_TARGET)$(RESET)"
+
+bin: $(BIN_TARGET)
+	@$(ECHO_CMD) "$(GREEN)✓ Built binary: $(BIN_TARGET)$(RESET)"
 
 # ================================================================
 # Compilation Rules
@@ -261,6 +282,15 @@ $(DLL_TARGET): $(DLL_OBJECTS) | $(LIBDIR)
 		-Wl,--out-implib,$(DLL_EXPORT) \
 		|| ($(ECHO_CMD) "$(RED)✗ DLL linking failed$(RESET)" && exit 1)
 	@$(ECHO_CMD) "$(GREEN)✓ Windows DLL created:$(RESET) $@"
+
+# Executable binary (build/bin/polycall or build/bin/polycall.exe)
+# Requires the shared library to be built first.
+$(BIN_TARGET): $(BIN_SRC) $(SHARED_LIB) | $(BINDIR)
+	@$(ECHO_CMD) "$(BLUE)  Compiling:$(RESET) $(BIN_SRC)"
+	@$(ECHO_CMD) "$(ORANGE)Linking binary:$(RESET) $@"
+	@$(COMPILER) $(CFLAGS) $(BIN_SRC) -o $@ $(BIN_LDFLAGS) \
+		|| ($(ECHO_CMD) "$(RED)✗ Binary build failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)✓ Binary created:$(RESET) $@"
 
 # ================================================================
 # Installation
@@ -320,6 +350,7 @@ help:
 	@$(ECHO_CMD) "  $(GREEN)make static$(RESET)       Build static library (.a / .lib)"
 	@$(ECHO_CMD) "  $(GREEN)make shared$(RESET)       Build shared library (.so / .dylib / .dll)"
 	@$(ECHO_CMD) "  $(GREEN)make dll$(RESET)          Build Windows DLL explicitly"
+	@$(ECHO_CMD) "  $(GREEN)make bin$(RESET)          Build executable (build/bin/polycall[.exe])"
 	@$(ECHO_CMD) ""
 	@$(ECHO_CMD) "  $(ORANGE)make install$(RESET)      Install library (Unix/Linux only)"
 	@$(ECHO_CMD) "  $(AMBER)make clean$(RESET)        Remove build artifacts"

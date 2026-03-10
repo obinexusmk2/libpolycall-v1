@@ -1,3 +1,10 @@
+/* Enable POSIX extensions (DT_DIR, usleep, etc.) on Linux/macOS.
+   Must appear before any system header inclusion. */
+#if !defined(_WIN32) && !defined(_WIN64)
+#  define _DEFAULT_SOURCE
+#  define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "polycall.h"
 #include "polycall_protocol.h"
 #include "polycall_state_machine.h"
