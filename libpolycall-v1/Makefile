@@ -18,75 +18,81 @@ VERSION := 2.0.0
 PROJECT_NAME := libpolycall
 
 # ================================================================
-# Color Codes for Output (ANSI & Windows)
-# ================================================================
-
-# Windows detection first (before uname)
-ifdef COMSPEC
-    PLATFORM := Windows
-    SHELL := cmd.exe
-    .SHELLFLAGS := /c
-    # Windows colors using ANSI escape sequences
-    RED := [91m
-    AMBER := [93m
-    ORANGE := [33m
-    GREEN := [92m
-    BLUE := [94m
-    RESET := [0m
-    RM := del /f /q
-    MKDIR := mkdir
-    RMDIR := rmdir /s /q
-    ECHO_CMD := echo
-    TOUCH_CMD := type nul >>
-else
-    # Unix/Linux/macOS colors
-    RED := \033[91m
-    AMBER := \033[93m
-    ORANGE := \033[33m
-    GREEN := \033[92m
-    BLUE := \033[94m
-    RESET := \033[0m
-    RM := rm -f
-    MKDIR := mkdir -p
-    RMDIR := rm -rf
-    ECHO_CMD := echo -e
-endif
-
-# ================================================================
 # Platform Detection
 # ================================================================
+# Use OS=Windows_NT which is set by Windows itself regardless of
+# whether the shell is cmd.exe, PowerShell, or MinGW/conda bash.
+# COMSPEC is unreliable in conda/MinGW environments.
 
-ifdef COMSPEC
-    # Windows Platform
-    PLATFORM := Windows
-    SHARED_EXT := .dll
-    STATIC_EXT := .lib
-    SHARED_FLAG := -shared
+ifeq ($(OS),Windows_NT)
+    PLATFORM          := Windows
+    SHELL             := cmd.exe
+    .SHELLFLAGS       := /c
+    SHARED_EXT        := .dll
+    STATIC_EXT        := .lib
+    SHARED_FLAG       := -shared
     POSITION_INDEPENDENT :=
-    COMPILER := gcc
+    COMPILER          := gcc
+    RM                := del /f /q
+    MKDIR             := mkdir
+    RMDIR             := rmdir /s /q
+    ECHO_CMD          := echo
 else
     UNAME_S := $(shell uname -s)
 
     ifeq ($(UNAME_S),Linux)
-        PLATFORM := Linux
+        PLATFORM   := Linux
         SHARED_EXT := .so
         SHARED_FLAG := -shared
         POSITION_INDEPENDENT := -fPIC
-        COMPILER := gcc
+        COMPILER   := gcc
     endif
 
     ifeq ($(UNAME_S),Darwin)
-        PLATFORM := macOS
+        PLATFORM   := macOS
         SHARED_EXT := .dylib
         SHARED_FLAG := -dynamiclib
         POSITION_INDEPENDENT := -fPIC
-        COMPILER := clang
+        COMPILER   := clang
     endif
+
+    RM       := rm -f
+    MKDIR    := mkdir -p
+    RMDIR    := rm -rf
+    ECHO_CMD := echo -e
 endif
 
 ifndef PLATFORM
     PLATFORM := Unknown
     COMPILER := gcc
+    RM       := rm -f
+    MKDIR    := mkdir -p
+    RMDIR    := rm -rf
+    ECHO_CMD := echo -e
+endif
+
+# ================================================================
+# Color Codes for Output
+# ================================================================
+# Windows cmd.exe cannot interpret ANSI escape sequences from
+# plain echo, so we use empty color strings on Windows — output
+# remains readable without garbled \033[...m noise.
+# On Linux/macOS, full ANSI colors are applied via echo -e.
+
+ifeq ($(PLATFORM),Windows)
+    RED    :=
+    AMBER  :=
+    ORANGE :=
+    GREEN  :=
+    BLUE   :=
+    RESET  :=
+else
+    RED    := \033[91m
+    AMBER  := \033[93m
+    ORANGE := \033[33m
+    GREEN  := \033[92m
+    BLUE   := \033[94m
+    RESET  := \033[0m
 endif
 
 # ================================================================
@@ -213,23 +219,23 @@ all: $(SHARED_LIB)
 
 debug: DEBUG := 1
 debug: clean all
-	@$(ECHO_CMD) "$(GREEN)✓ Built debug shared library: $(SHARED_LIB)$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Built debug shared library: $(SHARED_LIB)$(RESET)"
 
 release: DEBUG := 0
 release: clean all
-	@$(ECHO_CMD) "$(GREEN)✓ Built optimized release library: $(SHARED_LIB)$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Built optimized release library: $(SHARED_LIB)$(RESET)"
 
 static: $(STATIC_LIB)
-	@$(ECHO_CMD) "$(GREEN)✓ Built static library: $(STATIC_LIB)$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Built static library: $(STATIC_LIB)$(RESET)"
 
 shared: $(SHARED_LIB)
-	@$(ECHO_CMD) "$(GREEN)✓ Built shared library: $(SHARED_LIB)$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Built shared library: $(SHARED_LIB)$(RESET)"
 
 dll: $(DLL_TARGET)
-	@$(ECHO_CMD) "$(GREEN)✓ Built Windows DLL: $(DLL_TARGET)$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Built Windows DLL: $(DLL_TARGET)$(RESET)"
 
 bin: $(BIN_TARGET)
-	@$(ECHO_CMD) "$(GREEN)✓ Built binary: $(BIN_TARGET)$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Built binary: $(BIN_TARGET)$(RESET)"
 
 # ================================================================
 # Compilation Rules
@@ -248,7 +254,7 @@ $(BINDIR):
 # Object file compilation
 $(OBJDIR)/%.o: $(SRCDIR)/%.c $(HEADERS) | $(OBJDIR)
 	@$(ECHO_CMD) "$(BLUE)  Compiling:$(RESET) $<"
-	@$(COMPILER) $(CFLAGS) -c $< -o $@ || ($(ECHO_CMD) "$(RED)✗ Compilation failed: $<$(RESET)" && exit 1)
+	@$(COMPILER) $(CFLAGS) -c $< -o $@ || ($(ECHO_CMD) "$(RED)FAIL Compilation failed: $<$(RESET)" && exit 1)
 
 # ================================================================
 # Library Building
@@ -257,14 +263,14 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c $(HEADERS) | $(OBJDIR)
 # Static Library
 $(STATIC_LIB): $(OBJECTS) | $(LIBDIR)
 	@$(ECHO_CMD) "$(ORANGE)Linking static library:$(RESET) $@"
-	@ar rcs $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)✗ Linking failed$(RESET)" && exit 1)
-	@$(ECHO_CMD) "$(GREEN)✓ Static library created:$(RESET) $@"
+	@ar rcs $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)FAIL Linking failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)OK Static library created:$(RESET) $@"
 
 # Shared Library (Unix/Linux/macOS)
 $(SHARED_LIB): $(OBJECTS) | $(LIBDIR)
 	@$(ECHO_CMD) "$(ORANGE)Linking shared library:$(RESET) $@"
-	@$(CC) $(SHARED_FLAG) $(LDFLAGS) -o $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)✗ Linking failed$(RESET)" && exit 1)
-	@$(ECHO_CMD) "$(GREEN)✓ Shared library created:$(RESET) $@"
+	@$(COMPILER) $(SHARED_FLAG) $(LDFLAGS) -o $@ $(OBJECTS) || ($(ECHO_CMD) "$(RED)X Linking failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)OK Shared library created:$(RESET) $@"
 
 # Windows DLL (native or cross-compiled via MinGW-w64 from Linux/WSL)
 # Order-only dep on $(LIBDIR) ensures build/ parent exists before we try
@@ -274,14 +280,14 @@ $(DLL_OBJDIR): | $(LIBDIR)
 
 $(DLL_OBJDIR)/%.o: $(SRCDIR)/%.c $(HEADERS) | $(DLL_OBJDIR)
 	@$(ECHO_CMD) "$(BLUE)  Compiling (DLL):$(RESET) $<"
-	@$(DLL_CC) $(DLL_CFLAGS) -c $< -o $@ || ($(ECHO_CMD) "$(RED)✗ DLL compilation failed: $<$(RESET)" && exit 1)
+	@$(DLL_CC) $(DLL_CFLAGS) -c $< -o $@ || ($(ECHO_CMD) "$(RED)FAIL DLL compilation failed: $<$(RESET)" && exit 1)
 
 $(DLL_TARGET): $(DLL_OBJECTS) | $(LIBDIR)
 	@$(ECHO_CMD) "$(ORANGE)Linking Windows DLL:$(RESET) $@"
 	@$(DLL_CC) -shared -o $@ $(DLL_OBJECTS) \
 		-Wl,--out-implib,$(DLL_EXPORT) \
-		|| ($(ECHO_CMD) "$(RED)✗ DLL linking failed$(RESET)" && exit 1)
-	@$(ECHO_CMD) "$(GREEN)✓ Windows DLL created:$(RESET) $@"
+		|| ($(ECHO_CMD) "$(RED)FAIL DLL linking failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)OK Windows DLL created:$(RESET) $@"
 
 # Executable binary (build/bin/polycall or build/bin/polycall.exe)
 # Requires the shared library to be built first.
@@ -289,8 +295,8 @@ $(BIN_TARGET): $(BIN_SRC) $(SHARED_LIB) | $(BINDIR)
 	@$(ECHO_CMD) "$(BLUE)  Compiling:$(RESET) $(BIN_SRC)"
 	@$(ECHO_CMD) "$(ORANGE)Linking binary:$(RESET) $@"
 	@$(COMPILER) $(CFLAGS) $(BIN_SRC) -o $@ $(BIN_LDFLAGS) \
-		|| ($(ECHO_CMD) "$(RED)✗ Binary build failed$(RESET)" && exit 1)
-	@$(ECHO_CMD) "$(GREEN)✓ Binary created:$(RESET) $@"
+		|| ($(ECHO_CMD) "$(RED)FAIL Binary build failed$(RESET)" && exit 1)
+	@$(ECHO_CMD) "$(GREEN)OK Binary created:$(RESET) $@"
 
 # ================================================================
 # Installation
@@ -298,7 +304,7 @@ $(BIN_TARGET): $(BIN_SRC) $(SHARED_LIB) | $(BINDIR)
 
 install: $(SHARED_LIB) $(HEADERS)
 ifeq ($(PLATFORM),Windows)
-	@$(ECHO_CMD) "$(AMBER)⚠ Installation not supported on Windows$(RESET)"
+	@$(ECHO_CMD) "$(AMBER)WARNING: Installation not supported on Windows$(RESET)"
 	@$(ECHO_CMD) "$(AMBER)  Copy $(SHARED_LIB) to your system library path manually$(RESET)"
 else
 	@$(ECHO_CMD) "$(ORANGE)Installing $(PROJECT_NAME) v$(VERSION)...$(RESET)"
@@ -306,7 +312,7 @@ else
 	@install -d /usr/local/include/$(PROJECT_NAME)
 	@install -m 755 $(SHARED_LIB) /usr/local/lib/
 	@install -m 644 $(HEADERS) /usr/local/include/$(PROJECT_NAME)/
-	@$(ECHO_CMD) "$(GREEN)✓ Installed to /usr/local/lib/ and /usr/local/include/$(PROJECT_NAME)/$(RESET)"
+	@$(ECHO_CMD) "$(GREEN)OK Installed to /usr/local/lib/ and /usr/local/include/$(PROJECT_NAME)/$(RESET)"
 
 endif
 
@@ -316,13 +322,13 @@ endif
 
 clean:
 	@$(ECHO_CMD) "$(ORANGE)Cleaning build artifacts...$(RESET)"
-	@$(RMDIR) build 2>/dev/null || true
-	@$(ECHO_CMD) "$(GREEN)✓ Clean complete$(RESET)"
+	-@$(RMDIR) build
+	@$(ECHO_CMD) "$(GREEN)Clean complete$(RESET)"
 
 distclean: clean
 	@$(ECHO_CMD) "$(ORANGE)Removing generated files...$(RESET)"
-	@$(RM) *~ *.swp 2>/dev/null || true
-	@$(ECHO_CMD) "$(GREEN)✓ Distribution clean complete$(RESET)"
+	-@$(RM) *~ *.swp
+	@$(ECHO_CMD) "$(GREEN)Distribution clean complete$(RESET)"
 
 # ================================================================
 # Information and Help
